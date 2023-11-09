@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Chat Server</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" type="text/css" href="chat-server.css">
+</head>
+
+<body>
+    <h1>Chat Server</h1>
+
+    <!-- login -->
+    <div id="login">
+        <input type="text" id='username_input' placeholder="Input Username">
+        <button type="submit" id='login_button'>Login</button>
+    </div>
+
+    <!-- display username and which room -->
+    <h3 id="username_display">&nbsp;</h3>
+    <h4 id="room_display">&nbsp;</h4>
+
+    <!-- create new room -->
+    <div id="create_room">
+        <input type="text" id='room_name_input' placeholder="Room name">
+        <input type="text" id='room_password_input' placeholder="Room password (optional)">
+        <button type="submit" id='create_room_button'>Create Room</button>
+    </div><br>
+
+    <!-- change room -->
+    <div id="change_room">
+        <label for="room_selection">Change Room</label>
+        <select name="room_selection" id="room_selection"></select>
+    </div><br>
+
+    <!-- see users in room and private message -->
+    <div id="view_users">
+        <label for="user_selection">View Users *click user to send private message*</label>
+        <select name="user_selection" id="user_selection">
+            <option selected='selected' id="default">-</option>
+        </select>
+    </div><br>
+
+    <div id="remove_user">
+        <label for="remove_selection">Remove User</label>
+        <select name="remove_selection" id="remove_selection">
+        </select>
+        <select name="remove_type" id="remove_type">
+            <option selected='selected' id="temp">Temporary</option>
+            <option id="perm">Permanent</option>
+        </select>
+        <button type="submit" id='remove_button'>Remove</button>
+    </div>
+    <br><br><br>
+
+    <!-- log of current chat room -->
+    <div id="chat_log"></div><br>
+
+    <!-- chat input -->
+    <div id="chat">
+        <input type="text" id="message_input">
+        <button type="submit" id="send_button">Send</button>
+    </div>
+
+
+
+    <script src="chat-server.js"></script>
+    <script>
+        let socketio = io.connect();
+
+        let room = null
+
+        // get data about message and call addMessage() if the message is for the right room
+        socketio.on('message', function (data) {
+            if (room == data['user_info'][1]) {
+                addMessage(data['user_info'][0] + ': ' + data['message'])
+            }
+        });
+
+        // get username of newly joining user and display join message
+        socketio.on('user_connect', function (username) {
+            if (room == 'Main') {
+                document.getElementById('room_display').innerText = "Room: " + room
+                addMessage(username + ' joined!')
+            }
+
+        });
+
+        // display leave message when user leaves
+        socketio.on('user_disconnect', function (data) {
+            if (data[1] == room) {
+                addMessage(data[0] + ' left')
+            }
+
+        });
+
+        // display join message if user switches room
+        socketio.on('new_room', function (data) {
+            if (data['room_info']['password'] != '') {
+                if (data['room_info']['password'] == prompt("Enter password")) {
+                    if (data['user_info'][0] == document.getElementById('username_display').innerText) {
+                        room = data['room_info']['room']
+                        document.getElementById("room_password_input").value = ''
+                        document.getElementById('room_name_input').value = ''
+                        document.getElementById('room_display').innerText = "Room: " + room
+                        document.getElementById("chat_log").innerHTML = ''
+                        if (data['owner'] == data['user_info'][0]) {
+                            document.getElementById('remove_user').style.display = 'block'
+                        }
+                    }
+                    if (room == data['room_info']['room']) {
+                        addMessage(data['user_info'][0] + ' joined!')
+                    }
+                } else {
+                    if (data['user_info'][0] == document.getElementById('username_display').innerText) {
+                        socketio.emit('inc_password', room)
+                        alert("Incorrect password")
+                    }
+                }
+
+            } else {
+                if (data['user_info'][0] == document.getElementById('username_display').innerText) {
+                    room = data['room_info']['room']
+                    document.getElementById("room_password_input").value = ''
+                    document.getElementById('room_name_input').value = ''
+                    document.getElementById('room_display').innerText = "Room: " + room
+                    document.getElementById("chat_log").innerHTML = ''
+                    if (data['owner'] == data['user_info'][0]) {
+                        document.getElementById('remove_user').style.display = 'block'
+                    } else {
+                        document.getElementById('remove_user').style.display = 'none'
+                    }
+                    socketio.emit('change_room', room)
+
+                }
+                if (room == data['room_info']['room']) {
+                    addMessage(data['user_info'][0] + ' joined!')
+                }
+            }
+
+        });
+
+        // get names of rooms and display in dropdown menu
+        socketio.on('rooms', function (rooms) {
+            document.getElementById('room_selection').innerHTML = ''
+            for (let key in rooms) {
+                let r = document.createElement('option')
+                r.innerText = key
+                if (key == room) {
+                    r.selected = 'selected'
+                }
+                document.getElementById('room_selection').append(r)
+            }
+        });
+
+        // get usernames in room and add to dropdown menu
+        socketio.on('users', function (users) {
+            document.getElementById('user_selection').innerHTML = "<option selected='selected' id='default'>-</option>"
+            for (let user in users) {
+                let u = document.createElement('option')
+                u.innerText = users[user]
+                document.getElementById('user_selection').append(u)
+            }
+        });
+
+        // get usernames in room and add to dropdown menu
+        socketio.on('users_remove', function (users) {
+            document.getElementById('remove_selection').innerHTML = ""
+            for (let user in users) {
+                let u = document.createElement('option')
+                u.innerText = users[user]
+                document.getElementById('remove_selection').append(u)
+            }
+        });
+
+        // get data about private message and display to correct users
+        socketio.on('priv_message', function (data) {
+            if (room == data['user_info'][1]) {
+                if (document.getElementById('username_display').innerText == data['sender'] || document.getElementById('username_display').innerText == data['receiver']) {
+                    addMessage('*privately* ' + data['user_info'][0] + ': ' + data['message'])
+                }
+            }
+        });
+
+        // alert when user gets banned
+        socketio.on('temp_ban_alert', function (username) {
+            if (username == document.getElementById('username_display').innerText) {
+                alert("You have been kicked from " + room)
+            }
+        });
+        socketio.on('perm_ban_alert', function (username) {
+            if (username == document.getElementById('username_display').innerText) {
+                alert("You have been banned from " + room)
+            }
+        });
+
+
+        // listener for login
+        document.getElementById("login_button").addEventListener('click', () => {
+            socketio.emit('send_username', document.getElementById('username_input').value)
+            document.getElementById('login').style.display = 'none'
+            document.getElementById('username_display').innerText = document.getElementById('username_input').value
+            room = 'Main'
+            document.getElementById('create_room').style.display = 'block'
+            document.getElementById('change_room').style.display = 'block'
+            document.getElementById('view_users').style.display = 'block'
+            document.getElementById('chat').style.display = 'block'
+
+        })
+
+        // listener for sending message
+        document.getElementById("send_button").addEventListener('click', () => {
+            if (document.getElementById("user_selection").value == '-') {
+                socketio.emit('send_message', document.getElementById('message_input').value)
+            } else {
+                socketio.emit('send_priv_message', { message: document.getElementById('message_input').value, sender: document.getElementById('username_display').innerText, receiver: document.getElementById("user_selection").value })
+            }
+
+            document.getElementById('message_input').value = ""
+        })
+
+        // listener for creating room
+        document.getElementById("create_room_button").addEventListener('click', () => {
+            socketio.emit('send_room_info', { room: document.getElementById('room_name_input').value, password: document.getElementById('room_password_input').value })
+        })
+
+        // listener for loading room dropdown menu
+        document.getElementById("room_selection").addEventListener('click', () => {
+            socketio.emit('get_rooms')
+        })
+
+        // listener for changing rooms
+        document.getElementById("room_selection").addEventListener('change', () => {
+            socketio.emit('room_chosen', document.getElementById("room_selection").value)
+        })
+
+        // listener for choosing user to private message
+        document.getElementById("user_selection").addEventListener('click', () => {
+            socketio.emit('get_users', { room: room, action: 'private' })
+        })
+
+        // listener for choosing user to remove
+        document.getElementById("remove_selection").addEventListener('click', () => {
+            socketio.emit('get_users', { room: room, action: 'remove' })
+        })
+
+        // listener for remove user button
+        document.getElementById("remove_button").addEventListener('click', () => {
+            if (document.getElementById("remove_type").value == 'Temporary') {
+                socketio.emit('temp_ban', document.getElementById("remove_selection").value)
+                addMessage(document.getElementById("remove_selection").value + " has been removed from the room")
+            } else {
+                socketio.emit('perm_ban', { username: document.getElementById("remove_selection").value, room: room })
+                addMessage(document.getElementById("remove_selection").value + " has been banned from the room")
+            }
+        })
+
+        // hide options before logging in 
+        document.getElementById('create_room').style.display = 'none'
+        document.getElementById('change_room').style.display = 'none'
+        document.getElementById('view_users').style.display = 'none'
+        document.getElementById('remove_user').style.display = 'none'
+        document.getElementById('chat').style.display = 'none'
+
+
+
+        // add message to chat log
+        function addMessage(message) {
+            let text = document.createElement('div')
+            text.innerText = message
+            text.classList.add('mes');
+            document.getElementById('chat_log').append(text)
+            document.getElementById('default').selected = 'selected'
+        }
+
+    </script>
+</body>
+
+</html>
